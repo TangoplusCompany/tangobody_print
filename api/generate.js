@@ -54,7 +54,7 @@ export default async function handler(req, res) {
       // 폰트 대기 후 로딩 상태 체크
       await Promise.all([page1.evaluate(() => document.fonts.ready), page2.evaluate(() => document.fonts.ready)]);
       await Promise.all([waitForLoadingToDisappear(page1), waitForLoadingToDisappear(page2)]);
-      await delay(2000); // 애니메이션 최종 마무리 뜸 들이기
+      await delay(5000); // 애니메이션 최종 마무리 뜸 들이기
 
       const [pdf1, pdf2] = await Promise.all([
         page1.pdf({ format: 'A4', printBackground: true }),
