@@ -1,6 +1,6 @@
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
-import { PDFDocument } from 'pdf-lib'; // npm install pdf-lib 다시 확인!
+import { PDFDocument } from 'pdf-lib';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -13,6 +13,9 @@ export default async function handler(req, res) {
     let executablePath = await chromium.executablePath();
     if (isLocal) {
       executablePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    } else {
+      // [핵심 해결책] Vercel 리눅스 크롬 엔진에 한글(CJK) 렌더링 능력을 강제로 주입합니다.
+      await chromium.font('https://raw.githack.com/googlefonts/noto-cjk/main/Sans/Subset/NotoSansCJKkr-Regular.otf');
     }
 
     browser = await puppeteer.launch({
@@ -24,28 +27,33 @@ export default async function handler(req, res) {
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
 
-    // 1. [속도 최적화] 각자 고유한 도메인 환경에서 완벽하게 페이지 로드 (CORS, CSS 깨짐 원천 차단)
+    // 디버깅용: 가상 브라우저 내부에서 일어나는 자바스크립트 에러를 Vercel 로그에 출력
+    if (!isLocal) {
+      page1.on('console', msg => console.log('PAGE 1 LOG:', msg.text()));
+      page2.on('console', msg => console.log('PAGE 2 LOG:', msg.text()));
+    }
+
+    // 1. 페이지 로드
     await Promise.all([
-      page1.goto(`https://tango-blue.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 15000 }),
-      page2.goto(`https://tangobody-rom-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 15000 })
+      page1.goto(`https://tango-blue.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 30000 }),
+      page2.goto(`https://tangobody-rom-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 30000 })
     ]);
 
+    // 2. 웹폰트 및 비동기 데이터 렌더링 완전 대기 (시간을 5초로 확장)
     await Promise.all([
       page1.evaluate(() => document.fonts.ready),
       page2.evaluate(() => document.fonts.ready)
     ]);
-    // 2. 비동기 데이터 및 차트가 다 그려질 때까지 확실하게 대기
-    await delay(3000); 
+    await delay(5000); 
 
-    // 3. [최적화] 두 페이지를 동시에 PDF로 각각 구움
+    // 3. PDF 각각 생성
     const [pdf1, pdf2] = await Promise.all([
       page1.pdf({ format: 'A4', printBackground: true }),
       page2.pdf({ format: 'A4', printBackground: true })
     ]);
 
-    // 4. 깨끗하게 완성된 두 PDF를 하나로 병합
+    // 4. PDF 병합
     const mergedPdf = await PDFDocument.create();
-    
     const doc1 = await PDFDocument.load(pdf1);
     const doc2 = await PDFDocument.load(pdf2);
 
@@ -57,7 +65,6 @@ export default async function handler(req, res) {
 
     const finalPdfBytes = await mergedPdf.save();
 
-    // 5. 브라우저로 최종 결과 쏘기
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename=result.pdf');
     res.send(Buffer.from(finalPdfBytes));
