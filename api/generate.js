@@ -79,7 +79,7 @@ export default async function handler(req, res) {
 
       await page1.evaluate(() => document.fonts.ready);
       await waitForLoadingToDisappear(page1); // 1페이지 로딩 감시 추가
-      await delay(2000); 
+      await delay(5000); 
 
       const pdf1 = await page1.pdf({ format: 'A4', printBackground: true });
       pdfBytesArray.push(pdf1);
@@ -92,7 +92,7 @@ export default async function handler(req, res) {
 
       await page2.evaluate(() => document.fonts.ready);
       await waitForLoadingToDisappear(page2); // 2페이지 로딩 감시 추가
-      await delay(2000); 
+      await delay(5000); 
 
       const pdf2 = await page2.pdf({ format: 'A4', printBackground: true });
       pdfBytesArray.push(pdf2);
