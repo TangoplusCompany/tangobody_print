@@ -13,9 +13,6 @@ export default async function handler(req, res) {
     let executablePath = await chromium.executablePath();
     if (isLocal) {
       executablePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-    } else {
-      // [핵심 해결책] Vercel 리눅스 크롬 엔진에 한글(CJK) 렌더링 능력을 강제로 주입합니다.
-      await chromium.font('https://raw.githack.com/googlefonts/noto-cjk/main/Sans/Subset/NotoSansCJKkr-Regular.otf');
     }
 
     browser = await puppeteer.launch({
@@ -27,32 +24,29 @@ export default async function handler(req, res) {
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
 
-    // 디버깅용: 가상 브라우저 내부에서 일어나는 자바스크립트 에러를 Vercel 로그에 출력
-    if (!isLocal) {
-      page1.on('console', msg => console.log('PAGE 1 LOG:', msg.text()));
-      page2.on('console', msg => console.log('PAGE 2 LOG:', msg.text()));
-    }
-
-    // 1. 페이지 로드
+    // 1. 두 페이지 기본 틀 로드
     await Promise.all([
       page1.goto(`https://tango-blue.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 30000 }),
       page2.goto(`https://tangobody-rom-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 30000 })
     ]);
 
-    // 2. 웹폰트 및 비동기 데이터 렌더링 완전 대기 (시간을 5초로 확장)
+    // 2. [핵심] 각 사이트에 내장된 SUIT 웹폰트가 브라우저 메모리에 완전히 안착할 때까지 대기
     await Promise.all([
       page1.evaluate(() => document.fonts.ready),
       page2.evaluate(() => document.fonts.ready)
     ]);
+
+    // 3. 비동기 데이터와 리액트 차트가 완전히 그려지도록 5초간 넉넉하게 뜸을 들임
+    // (Vercel 서버 첫 실행 시 외주 API 연동 속도를 고려해 시간을 조금 더 확보했습니다)
     await delay(5000); 
 
-    // 3. PDF 각각 생성
+    // 4. 각각 PDF 생성
     const [pdf1, pdf2] = await Promise.all([
       page1.pdf({ format: 'A4', printBackground: true }),
       page2.pdf({ format: 'A4', printBackground: true })
     ]);
 
-    // 4. PDF 병합
+    // 5. PDF 병합 (pdf-lib)
     const mergedPdf = await PDFDocument.create();
     const doc1 = await PDFDocument.load(pdf1);
     const doc2 = await PDFDocument.load(pdf2);
@@ -65,6 +59,7 @@ export default async function handler(req, res) {
 
     const finalPdfBytes = await mergedPdf.save();
 
+    // 6. 결과 전송
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename=result.pdf');
     res.send(Buffer.from(finalPdfBytes));
