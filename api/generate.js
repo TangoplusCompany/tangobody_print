@@ -24,29 +24,41 @@ export default async function handler(req, res) {
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
 
-    // 1. 두 페이지 기본 틀 로드
+    // 1. 두 페이지 로드
     await Promise.all([
       page1.goto(`https://tango-blue.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 30000 }),
       page2.goto(`https://tangobody-rom-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 30000 })
     ]);
 
-    // 2. [핵심] 각 사이트에 내장된 SUIT 웹폰트가 브라우저 메모리에 완전히 안착할 때까지 대기
+    // 2. [첫 번째 페이지 전용 구출 코드] 
+    // 가변 폰트를 인식 못 하는 서버 크롬을 위해 SUIT 공식 Static(고정형) 웹폰트 경로를 강제 인식시킵니다.
+    if (!isLocal) {
+      await page1.addStyleTag({
+        url: 'https://cdn.jsdelivr.net/gh/sun-typeface/SUIT/fonts/static/woff2/SUIT.css'
+      });
+      await page1.evaluate(() => {
+        const style = document.createElement('style');
+        style.innerHTML = `* { font-family: 'SUIT', sans-serif !important; }`;
+        document.head.appendChild(style);
+      });
+    }
+
+    // 3. 웹폰트가 브라우저 메모리에 완전히 안착할 때까지 대기
     await Promise.all([
       page1.evaluate(() => document.fonts.ready),
       page2.evaluate(() => document.fonts.ready)
     ]);
 
-    // 3. 비동기 데이터와 리액트 차트가 완전히 그려지도록 5초간 넉넉하게 뜸을 들임
-    // (Vercel 서버 첫 실행 시 외주 API 연동 속도를 고려해 시간을 조금 더 확보했습니다)
+    // 4. 데이터와 차트 렌더링 대기
     await delay(5000); 
 
-    // 4. 각각 PDF 생성
+    // 5. 각각 PDF 생성
     const [pdf1, pdf2] = await Promise.all([
       page1.pdf({ format: 'A4', printBackground: true }),
       page2.pdf({ format: 'A4', printBackground: true })
     ]);
 
-    // 5. PDF 병합 (pdf-lib)
+    // 6. PDF 병합
     const mergedPdf = await PDFDocument.create();
     const doc1 = await PDFDocument.load(pdf1);
     const doc2 = await PDFDocument.load(pdf2);
@@ -59,7 +71,7 @@ export default async function handler(req, res) {
 
     const finalPdfBytes = await mergedPdf.save();
 
-    // 6. 결과 전송
+    // 7. 결과 전송
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename=result.pdf');
     res.send(Buffer.from(finalPdfBytes));
