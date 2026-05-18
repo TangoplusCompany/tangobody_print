@@ -4,12 +4,25 @@ import { PDFDocument } from 'pdf-lib';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// [핵심] 화면에서 '로딩중' 텍스트가 사라질 때까지 감시하는 함수
 const waitForLoadingToDisappear = async (page) => {
   await page.waitForFunction(() => {
-    // 화면 전체 텍스트 중 '로딩중'이라는 글자가 없으면 true를 반환하여 통과
     return !document.body.innerText.includes('로딩중');
   }, { timeout: 25000 }).catch(() => console.log(`${page.url()} 로딩 대기 타임아웃 (무시하고 진행)`));
+};
+const getKstTimestamp = () => {
+  const now = new Date();
+  // Vercel 서버(UTC)에 9시간을 더해 한국 시간으로 맞춤
+  const kst = new Date(now.getTime() + (9 * 60 * 60 * 1000));
+  
+  const yyyy = kst.getUTCFullYear();
+  const mm = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(kst.getUTCDate()).padStart(2, '0');
+  const hh = String(kst.getUTCHours()).padStart(2, '0');
+  const min = String(kst.getUTCMinutes()).padStart(2, '0');
+  const ss = String(kst.getUTCSeconds()).padStart(2, '0');
+  
+  // OS 파일명 제한으로 인해 콜론(:) 대신 대시(-) 사용
+  return `${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}`;
 };
 
 export default async function handler(req, res) {
@@ -55,7 +68,7 @@ export default async function handler(req, res) {
       await Promise.all([page1.evaluate(() => document.fonts.ready), page2.evaluate(() => document.fonts.ready)]);
       await Promise.all([waitForLoadingToDisappear(page1), waitForLoadingToDisappear(page2)]);
       await delay(5000); // 애니메이션 최종 마무리 뜸 들이기
-
+ㄹ
       const [pdf1, pdf2] = await Promise.all([
         page1.pdf({ format: 'A4', printBackground: true }),
         page2.pdf({ format: 'A4', printBackground: true })
@@ -112,8 +125,13 @@ export default async function handler(req, res) {
       finalPdfBytes = await mergedPdf.save();
     }
 
+    // 현재 한국 시간 타임스탬프 가져오기
+    const timestamp = getKstTimestamp();
+    const filename = `tangobody-print_${timestamp}.pdf`;
+
+    // 결과 전송 및 동적 파일명 적용
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename=result.pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.send(Buffer.from(finalPdfBytes));
 
   } catch (error) {
