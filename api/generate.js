@@ -1,63 +1,66 @@
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib'; // npm install pdf-lib 다시 확인!
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default async function handler(req, res) {
-  const { t_r } = req.query; // 외주 페이지용 암호화 키
-
-  if (!t_r) {
-    return res.status(400).send('t_r parameter is required');
-  }
-
+  const { t_r } = req.query;
+  const isLocal = process.env.NODE_ENV === 'development' || !process.env.VERCEL;
   let browser = null;
-  const WIN_CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-  const isLocal = process.env.NODE_ENV === 'development';
+
   try {
-    // // 1. 브라우저 실행 (Vercel 환경 대응)
-    // browser = await puppeteer.launch({
-    //   args: chromium.args,
-    //   executablePath: await chromium.executablePath(),
-    //   headless: chromium.headless,
-    // });
-    const browser = await puppeteer.launch({
-      args: isLocal ? [] : chromium.args,
-      executablePath: isLocal ? WIN_CHROME_PATH : await chromium.executablePath(),
-      headless: isLocal ? false : chromium.headless, // 로컬에선 동작 확인을 위해 브라우저가 뜨게(false) 설정 가능
+    let executablePath = await chromium.executablePath();
+    if (isLocal) {
+      executablePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    }
+
+    browser = await puppeteer.launch({
+      args: isLocal ? ['--no-sandbox'] : chromium.args,
+      executablePath: executablePath,
+      headless: isLocal ? false : chromium.headless, 
     });
 
-    const page = await browser.newPage();
-    const pdfDocs = [];
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
 
-    await page.goto(`https://tango-blue.vercel.app/?t_r=${t_r}`, { waitUntil: 'networkidle2' });
-    const pdf1 = await page.pdf({ format: 'A4', printBackground: true });
-    pdfDocs.push(pdf1);
+    // 1. [속도 최적화] 각자 고유한 도메인 환경에서 완벽하게 페이지 로드 (CORS, CSS 깨짐 원천 차단)
+    await Promise.all([
+      page1.goto(`https://tango-blue.vercel.app/?t_r=${t_r}`, { waitUntil: 'networkidle0' }),
+      page2.goto(`https://tangobody-rom-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'networkidle0' })
+    ]);
 
-    await page.goto(`https://tangobody-rom-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'networkidle2' });
-    const pdf2 = await page.pdf({ format: 'A4', printBackground: true });
-    pdfDocs.push(pdf2);
+    // 2. 비동기 데이터 및 차트가 다 그려질 때까지 확실하게 대기
+    await delay(3000); 
 
-    await page.goto(`https://tangobody-bia-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'networkidle2' });
-    const pdf3 = await page.pdf({ format: 'A4', printBackground: true });
-    pdfDocs.push(pdf3);
+    // 3. [최적화] 두 페이지를 동시에 PDF로 각각 구움
+    const [pdf1, pdf2] = await Promise.all([
+      page1.pdf({ format: 'A4', printBackground: true }),
+      page2.pdf({ format: 'A4', printBackground: true })
+    ]);
 
-    // 4. PDF 병합 (pdf-lib)
+    // 4. 깨끗하게 완성된 두 PDF를 하나로 병합
     const mergedPdf = await PDFDocument.create();
-    for (const pdfBytes of pdfDocs) {
-      const doc = await PDFDocument.load(pdfBytes);
-      const copiedPages = await mergedPdf.copyPages(doc, doc.getPageIndices());
-      copiedPages.forEach((page) => mergedPdf.addPage(page));
-    }
+    
+    const doc1 = await PDFDocument.load(pdf1);
+    const doc2 = await PDFDocument.load(pdf2);
+
+    const copiedPages1 = await mergedPdf.copyPages(doc1, doc1.getPageIndices());
+    copiedPages1.forEach((page) => mergedPdf.addPage(page));
+
+    const copiedPages2 = await mergedPdf.copyPages(doc2, doc2.getPageIndices());
+    copiedPages2.forEach((page) => mergedPdf.addPage(page));
 
     const finalPdfBytes = await mergedPdf.save();
 
-    // 5. PDF 파일로 응답
+    // 5. 브라우저로 최종 결과 쏘기
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename=result.pdf');
     res.send(Buffer.from(finalPdfBytes));
 
   } catch (error) {
     console.error(error);
-    res.status(500).send('PDF Generation Failed');
+    res.status(500).json({ error: error.message });
   } finally {
     if (browser) await browser.close();
   }

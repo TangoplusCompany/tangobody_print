@@ -19,3 +19,4 @@ Thumbs.db
 
 # Vercel 관련
 .vercel
+.env*.local
