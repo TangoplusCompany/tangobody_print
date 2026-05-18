@@ -4,11 +4,17 @@ import { PDFDocument } from 'pdf-lib';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// [핵심] 화면에서 '로딩중' 텍스트가 사라질 때까지 감시하는 함수
+const waitForLoadingToDisappear = async (page) => {
+  await page.waitForFunction(() => {
+    // 화면 전체 텍스트 중 '로딩중'이라는 글자가 없으면 true를 반환하여 통과
+    return !document.body.innerText.includes('로딩중');
+  }, { timeout: 25000 }).catch(() => console.log(`${page.url()} 로딩 대기 타임아웃 (무시하고 진행)`));
+};
+
 export default async function handler(req, res) {
   const { t_r, type } = req.query;
   const isLocal = process.env.NODE_ENV === 'development' || !process.env.VERCEL;
-  
-  // type이 없으면 기본값 '0'(전부)으로 설정
   const printType = type ? String(type) : '0'; 
   let browser = null;
 
@@ -26,7 +32,7 @@ export default async function handler(req, res) {
 
     const pdfBytesArray = [];
 
-    // --- [분기 로직 0]: 전부 인쇄 (기존과 동일하게 병렬 처리) ---
+    // --- [Type 0]: 전부 인쇄 ---
     if (printType === '0') {
       const page1 = await browser.newPage();
       const page2 = await browser.newPage();
@@ -45,11 +51,10 @@ export default async function handler(req, res) {
         });
       }
 
-      await Promise.all([
-        page1.evaluate(() => document.fonts.ready),
-        page2.evaluate(() => document.fonts.ready)
-      ]);
-      await delay(5000); 
+      // 폰트 대기 후 로딩 상태 체크
+      await Promise.all([page1.evaluate(() => document.fonts.ready), page2.evaluate(() => document.fonts.ready)]);
+      await Promise.all([waitForLoadingToDisappear(page1), waitForLoadingToDisappear(page2)]);
+      await delay(2000); // 애니메이션 최종 마무리 뜸 들이기
 
       const [pdf1, pdf2] = await Promise.all([
         page1.pdf({ format: 'A4', printBackground: true }),
@@ -58,7 +63,7 @@ export default async function handler(req, res) {
       pdfBytesArray.push(pdf1, pdf2);
     } 
     
-    // --- [분기 로직 1]: 첫 번째 페이지(간편검사)만 인쇄 ---
+    // --- [Type 1]: 첫 번째 페이지(내 ROM)만 인쇄 ---
     else if (printType === '1') {
       const page1 = await browser.newPage();
       await page1.goto(`https://tango-blue.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 30000 });
@@ -73,19 +78,21 @@ export default async function handler(req, res) {
       }
 
       await page1.evaluate(() => document.fonts.ready);
-      await delay(5000); 
+      await waitForLoadingToDisappear(page1); // 1페이지 로딩 감시 추가
+      await delay(2000); 
 
       const pdf1 = await page1.pdf({ format: 'A4', printBackground: true });
       pdfBytesArray.push(pdf1);
     } 
     
-    // --- [분기 로직 2]: 두 번째 페이지(ROM)만 인쇄 ---
+    // --- [Type 2]: 두 번째 페이지(외주 간편검사)만 인쇄 ---
     else if (printType === '2') {
       const page2 = await browser.newPage();
       await page2.goto(`https://tangobody-rom-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 30000 });
 
       await page2.evaluate(() => document.fonts.ready);
-      await delay(5000); 
+      await waitForLoadingToDisappear(page2); // 2페이지 로딩 감시 추가
+      await delay(2000); 
 
       const pdf2 = await page2.pdf({ format: 'A4', printBackground: true });
       pdfBytesArray.push(pdf2);
@@ -93,12 +100,9 @@ export default async function handler(req, res) {
 
     // --- 최종 PDF 결과물 처리 ---
     let finalPdfBytes;
-
-    // 한 페이지만 요청했을 경우 병합 연산을 패스하여 성능 최적화
     if (pdfBytesArray.length === 1) {
       finalPdfBytes = pdfBytesArray[0];
     } else {
-      // 두 페이지 이상일 때만 pdf-lib로 병합 실행
       const mergedPdf = await PDFDocument.create();
       for (const pdfBytes of pdfBytesArray) {
         const doc = await PDFDocument.load(pdfBytes);
@@ -108,7 +112,6 @@ export default async function handler(req, res) {
       finalPdfBytes = await mergedPdf.save();
     }
 
-    // 결과 전송
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename=result.pdf');
     res.send(Buffer.from(finalPdfBytes));
