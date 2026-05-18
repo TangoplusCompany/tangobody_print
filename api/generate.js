@@ -26,10 +26,14 @@ export default async function handler(req, res) {
 
     // 1. [속도 최적화] 각자 고유한 도메인 환경에서 완벽하게 페이지 로드 (CORS, CSS 깨짐 원천 차단)
     await Promise.all([
-      page1.goto(`https://tango-blue.vercel.app/?t_r=${t_r}`, { waitUntil: 'networkidle0' }),
-      page2.goto(`https://tangobody-rom-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'networkidle0' })
+      page1.goto(`https://tango-blue.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 15000 }),
+      page2.goto(`https://tangobody-rom-print.vercel.app/?t_r=${t_r}`, { waitUntil: 'load', timeout: 15000 })
     ]);
 
+    await Promise.all([
+      page1.evaluate(() => document.fonts.ready),
+      page2.evaluate(() => document.fonts.ready)
+    ]);
     // 2. 비동기 데이터 및 차트가 다 그려질 때까지 확실하게 대기
     await delay(3000); 
 
