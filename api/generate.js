@@ -4,10 +4,10 @@ import { PDFDocument } from 'pdf-lib';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// 환경 변수 명칭 변경 (Partner -> Basic)
-const BASIC_URL = process.env.BASIC_URL || '';
-const ROM_URL = process.env.ROM_URL || '';
-const BIA_URL = process.env.BIA_URL || '';
+const BASIC_URL = process.env.BASIC_URL || 'https://tangobody-rom-print.vercel.app';
+const ROM_URL = process.env.ROM_URL || 'https://tango-blue.vercel.app';
+// 아직 없을 수 있으므로 기본값 없이 환경 변수 그대로 가져옵니다.
+const BIA_URL = process.env.BIA_URL; 
 
 const waitForLoadingToDisappear = async (page) => {
   await page.waitForFunction(() => {
@@ -31,7 +31,7 @@ export default async function handler(req, res) {
   const { t_r, type } = req.query;
   const isLocal = process.env.NODE_ENV === 'development' || !process.env.VERCEL;
   
-  const config = type && type.length === 3 ? type : "111"; 
+  const config = type ? String(type) : "1"; 
   let browser = null;
 
   try {
@@ -46,22 +46,33 @@ export default async function handler(req, res) {
       headless: isLocal ? false : chromium.headless, 
     });
 
-    // 1. 타겟 구성 및 isBasic 플래그 설정
     const targets = [];
-    if (config[0] === '1') targets.push({ url: `${BASIC_URL}/?t_r=${t_r}`, isBasic: true });  // 간편검사 (Basic)
-    if (config[1] === '1') targets.push({ url: `${ROM_URL}/?t_r=${t_r}`, isBasic: false });  // ROM (폰트 주입 필요)
-    if (config[2] === '1') targets.push({ url: `${BIA_URL}/?t_r=${t_r}`, isBasic: false });  // BIA (폰트 주입 필요)
-
-    if (targets.length === 0) {
-      return res.status(400).json({ error: "최소 하나의 리포트는 선택해야 합니다. (예: type=111)" });
+    
+    // [1번째 자리: 간편검사] '1'이 들어오면 타겟 추가
+    if (config[0] === '1') {
+      targets.push({ url: `${BASIC_URL}/?t_r=${t_r}`, isBasic: true });
+    }
+    
+    // [2번째 자리: ROM] '1'이 들어오고 주소가 유효할 때만 추가
+    if (config[1] === '1') {
+      targets.push({ url: `${ROM_URL}/?t_r=${t_r}`, isBasic: false });
+    }
+    
+    // [3번째 자리: BIA] '1'이 들어왔고, '실제로 Vercel에 BIA_URL 환경 변수가 등록되어 있을 때만' 추가
+    if (config[2] === '1' && BIA_URL) {
+      targets.push({ url: `${BIA_URL}/?t_r=${t_r}`, isBasic: false });
     }
 
-    const pages = await Promise.all(targets.map(() => browser.newPage()));
+    // 선택된 타겟이 아무것도 없다면 400 에러 반환
+    if (targets.length === 0) {
+      return res.status(400).json({ error: "선택된 리포트가 없거나 유효하지 않은 주소입니다." });
+    }
 
-    // 2. 페이지 로드
+    // 동적으로 생성된 타겟 개수만큼만 브라우저 탭 생성 및 로드
+    const pages = await Promise.all(targets.map(() => browser.newPage()));
     await Promise.all(pages.map((page, i) => page.goto(targets[i].url, { waitUntil: 'load', timeout: 30000 })));
 
-    // 3. 폰트 주입 처리 (isBasic이 'false'인 ROM, BIA 페이지에 일괄 주입)
+    // 폰트 주입 및 폰트 레디 대기
     await Promise.all(pages.map(async (page, i) => {
       if (!targets[i].isBasic && !isLocal) {
         await page.addStyleTag({ url: 'https://cdn.jsdelivr.net/gh/sun-typeface/SUIT/fonts/static/woff2/SUIT.css' });
@@ -74,14 +85,14 @@ export default async function handler(req, res) {
       await page.evaluate(() => document.fonts.ready);
     }));
 
-    // 4. 데이터 로딩 대기 및 5초 뜸 들이기
+    // 데이터 로딩 완벽 대기 및 5초 뜸 들이기
     await Promise.all(pages.map(page => waitForLoadingToDisappear(page)));
     await delay(5000); 
 
-    // 5. PDF 생성
+    // PDF 굽기
     const pdfBytesArray = await Promise.all(pages.map(page => page.pdf({ format: 'A4', printBackground: true })));
 
-    // 6. PDF 병합
+    // PDF 파일 하나로 최종 병합
     let finalPdfBytes;
     if (pdfBytesArray.length === 1) {
       finalPdfBytes = pdfBytesArray[0];
