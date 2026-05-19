@@ -48,17 +48,14 @@ export default async function handler(req, res) {
 
     const targets = [];
     
-    // [1번째 자리: 간편검사] '1'이 들어오면 타겟 추가
     if (config[0] === '1') {
       targets.push({ url: `${BASIC_URL}/?t_r=${t_r}`, isBasic: true });
     }
     
-    // [2번째 자리: ROM] '1'이 들어오고 주소가 유효할 때만 추가
     if (config[1] === '1') {
       targets.push({ url: `${ROM_URL}/?t_r=${t_r}`, isBasic: false });
     }
     
-    // [3번째 자리: BIA] '1'이 들어왔고, '실제로 Vercel에 BIA_URL 환경 변수가 등록되어 있을 때만' 추가
     if (config[2] === '1' && BIA_URL) {
       targets.push({ url: `${BIA_URL}/?t_r=${t_r}`, isBasic: false });
     }
@@ -74,7 +71,7 @@ export default async function handler(req, res) {
 
     // 폰트 주입 및 폰트 레디 대기
     await Promise.all(pages.map(async (page, i) => {
-      if (!targets[i].isBasic && !isLocal) {
+      if (!isLocal) {
         await page.addStyleTag({ url: 'https://cdn.jsdelivr.net/gh/sun-typeface/SUIT/fonts/static/woff2/SUIT.css' });
         await page.evaluate(() => {
           const style = document.createElement('style');
