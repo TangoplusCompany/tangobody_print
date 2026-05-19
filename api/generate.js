@@ -4,8 +4,8 @@ import { PDFDocument } from 'pdf-lib';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const BASIC_URL = process.env.BASIC_URL || 'https://tangobody-rom-print.vercel.app';
-const ROM_URL = process.env.ROM_URL || 'https://tango-blue.vercel.app';
+const BASIC_URL = process.env.BASIC_URL || '';
+const ROM_URL = process.env.ROM_URL || '';
 // 아직 없을 수 있으므로 기본값 없이 환경 변수 그대로 가져옵니다.
 const BIA_URL = process.env.BIA_URL; 
 
