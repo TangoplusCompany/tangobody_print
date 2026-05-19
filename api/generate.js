@@ -82,9 +82,9 @@ export default async function handler(req, res) {
       await page.evaluate(() => document.fonts.ready);
     }));
 
-    // 데이터 로딩 완벽 대기 및 5초 뜸 들이기
+    // 데이터 로딩 완벽 대기 및 6초 뜸 들이기
     await Promise.all(pages.map(page => waitForLoadingToDisappear(page)));
-    await delay(5000); 
+    await delay(6000); 
 
     // PDF 굽기
     const pdfBytesArray = await Promise.all(pages.map(page => page.pdf({ format: 'A4', printBackground: true })));
